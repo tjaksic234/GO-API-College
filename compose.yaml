@@ -1,0 +1,16 @@
+services:
+  db:
+    container_name: mysql
+    hostname: tjaksic
+    image: mysql
+    restart: unless-stopped
+    environment:
+      - MYSQL_DATABASE=TJAKSIC_TEST_DB
+      - MYSQL_ROOT_PASSWORD=secret
+    ports:
+      - '3306:3306'
+    volumes:
+      - db:/var/lib/mysql
+volumes:
+  db:
+    driver: local
