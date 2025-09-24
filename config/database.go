@@ -14,8 +14,18 @@ var DB *gorm.DB
 
 func InitDB() {
 	pkg.LoadEnv()
+	var dsn string
+	profile := os.Getenv("GO_PROFILES_ACTIVE")
+
+	switch profile {
+	case "dev":
+		dsn = os.Getenv("DB_CONNECTION_DEV")
+	case "docker":
+		dsn = os.Getenv("DB_CONNECTION_DOCKER")
+	default:
+		log.Fatalf("Unknown profile %s", profile)
+	}
 	var err error
-	dsn := os.Getenv("DB_CONNECTION_DEV")
 	DB, err = gorm.Open(mysql.Open(dsn), &gorm.Config{})
 
 	if err != nil {
