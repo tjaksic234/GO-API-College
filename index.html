@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>Go Chat Client</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        h1 { margin-bottom: 10px; }
+        fieldset { border: 1px solid #ccc; margin-bottom: 15px; padding: 10px; }
+        legend { font-weight: bold; }
+        input, button, select { padding: 6px; margin: 3px 0; }
+        #log { height: 250px; overflow-y: auto; border: 1px solid #ccc; padding: 6px; background: #f9f9f9; }
+        .msg { margin-bottom: 4px; }
+        .meta { font-size: 12px; color: #555; }
+        .me { font-weight: bold; }
+        .list { border: 1px solid #ccc; padding: 6px; height: 150px; overflow-y: auto; background: #fff; }
+        .status { font-size: 12px; margin-left: 10px; }
+        .ok { color: green; }
+        .err { color: red; }
+    </style>
+</head>
+<body>
+<h1>Go Chat Client</h1>
+
+<fieldset>
+    <legend>Connection</legend>
+    <div>
+        <label>WebSocket URL</label><br>
+        <input id="wsUrl" type="text" value="ws://localhost:8080/ws" />
+    </div>
+    <div>
+        <label>REST Base URL</label><br>
+        <input id="restBase" type="text" value="http://localhost:8080" />
+    </div>
+    <div>
+        <label>Username</label><br>
+        <input id="username" type="text" placeholder="alice" />
+    </div>
+    <div>
+        <label>Room</label><br>
+        <input id="room" type="text" value="general" />
+    </div>
+    <button id="btnJoin">Join</button>
+    <button id="btnLeave" disabled>Leave</button>
+    <span id="connState" class="status err">disconnected</span>
+</fieldset>
+
+<fieldset>
+    <legend>Messages</legend>
+    <div id="log"></div>
+    <input id="message" type="text" placeholder="Type message..." disabled />
+    <button id="btnSend" disabled>Send</button>
+    <button id="btnLoadHistory">Load History</button>
+</fieldset>
+
+<fieldset>
+    <legend>Rooms & Users</legend>
+    <div>
+        <button id="btnAllRooms">All Rooms</button>
+        <button id="btnActiveRooms">Active Rooms</button>
+        <button id="btnUsers">Users</button>
+    </div>
+    <h4>Rooms</h4>
+    <div id="rooms" class="list"></div>
+    <h4>Users</h4>
+    <div id="users" class="list"></div>
+</fieldset>
+
+<script>
+    const wsUrlEl = document.getElementById('wsUrl');
+    const restBaseEl = document.getElementById('restBase');
+    const usernameEl = document.getElementById('username');
+    const roomEl = document.getElementById('room');
+    const btnJoin = document.getElementById('btnJoin');
+    const btnLeave = document.getElementById('btnLeave');
+    const btnSend = document.getElementById('btnSend');
+    const btnLoadHistory = document.getElementById('btnLoadHistory');
+    const messageEl = document.getElementById('message');
+    const logEl = document.getElementById('log');
+    const connStateEl = document.getElementById('connState');
+    const btnAllRooms = document.getElementById('btnAllRooms');
+    const btnActiveRooms = document.getElementById('btnActiveRooms');
+    const btnUsers = document.getElementById('btnUsers');
+    const roomsEl = document.getElementById('rooms');
+    const usersEl = document.getElementById('users');
+
+    let ws = null;
+    let myUsername = null;
+    let myRoom = null;
+
+    function setConnected(state) {
+        connStateEl.textContent = state ? 'connected' : 'disconnected';
+        connStateEl.className = state ? 'status ok' : 'status err';
+        btnJoin.disabled = state;
+        btnLeave.disabled = !state;
+        btnSend.disabled = !state;
+        messageEl.disabled = !state;
+    }
+
+    function addLog(text, cls) {
+        const div = document.createElement('div');
+        div.className = 'msg ' + (cls || '');
+        div.textContent = text;
+        logEl.appendChild(div);
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function addLogObj(obj, cls) {
+        const div = document.createElement('div');
+        div.className = 'msg ' + (cls || '');
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        meta.textContent = `${obj.username} @ ${obj.room}`;
+        const body = document.createElement('div');
+        body.textContent = obj.message || JSON.stringify(obj);
+        div.appendChild(meta);
+        div.appendChild(body);
+        logEl.appendChild(div);
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function send(obj) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify(obj));
+    }
+
+    btnJoin.addEventListener('click', () => {
+        const url = wsUrlEl.value.trim();
+        myUsername = usernameEl.value.trim();
+        myRoom = roomEl.value.trim() || 'general';
+        if (!url || !myUsername) {
+            alert("Enter WebSocket URL and username");
+            return;
+        }
+        if (ws) ws.close();
+        ws = new WebSocket(url);
+
+        ws.addEventListener('open', () => {
+            setConnected(true);
+            addLog("Connected to " + url, "meta");
+            send({ type: "join", room: myRoom, username: myUsername });
+        });
+
+        ws.addEventListener('message', ev => {
+            try {
+                const data = JSON.parse(ev.data);
+                addLogObj(data, data.username === myUsername ? "me" : "");
+            } catch {
+                addLog(ev.data);
+            }
+        });
+
+        ws.addEventListener('close', () => {
+            setConnected(false);
+            addLog("Connection closed", "meta");
+        });
+
+        ws.addEventListener('error', () => {
+            setConnected(false);
+            addLog("Error on connection", "meta");
+        });
+    });
+
+    btnLeave.addEventListener('click', () => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            send({ type: "leave", room: myRoom, username: myUsername });
+        }
+        if (ws) ws.close();
+    });
+
+    btnSend.addEventListener('click', () => {
+        const text = messageEl.value;
+        if (!text) return;
+        send({ type: "message", room: myRoom, username: myUsername, message: text });
+        messageEl.value = "";
+        messageEl.focus();
+    });
+
+    messageEl.addEventListener('keydown', e => {
+        if (e.key === "Enter") btnSend.click();
+    });
+
+    btnLoadHistory.addEventListener('click', async () => {
+        const base = restBaseEl.value.replace(/\/+$/, '');
+        try {
+            const res = await fetch(`${base}/messages/${myRoom}?limit=50`);
+            const data = await res.json();
+            addLog(`--- History for ${myRoom} ---`, "meta");
+            data.messages.forEach(m => {
+                addLog(`${m.username}@${m.room}: ${m.content}`, "");
+            });
+        } catch (e) {
+            addLog("Error fetching history", "meta");
+        }
+    });
+
+    async function fetchList(endpoint, targetEl) {
+        const base = restBaseEl.value.replace(/\/+$/, '');
+        try {
+            const res = await fetch(base + endpoint);
+            const data = await res.json();
+            targetEl.innerHTML = "";
+            const items = data.rooms || data.users || [];
+            items.forEach(i => {
+                const div = document.createElement("div");
+                div.textContent = i.name || i.username || i;
+                targetEl.appendChild(div);
+            });
+        } catch {
+            targetEl.textContent = "Error fetching " + endpoint;
+        }
+    }
+
+    btnAllRooms.addEventListener('click', () => fetchList("/rooms", roomsEl));
+    btnActiveRooms.addEventListener('click', () => fetchList("/rooms/active", roomsEl));
+    btnUsers.addEventListener('click', () => fetchList("/users", usersEl));
+</script>
+</body>
+</html>
