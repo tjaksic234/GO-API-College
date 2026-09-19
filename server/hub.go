@@ -63,21 +63,12 @@ func (h *Hub) RemoveClient(c *Client) {
 	}
 }
 
-func (h *Hub) ActiveRooms() []string {
-	h.lock.RLock()
-	defer h.lock.RUnlock()
-	out := make([]string, 0, len(h.rooms))
-	for name := range h.rooms {
-		out = append(out, name)
-	}
-	return out
-}
-
 type IncomingMessage struct {
 	Type     string `json:"type"`
 	Room     string `json:"room"`
 	Username string `json:"username"`
 	Message  string `json:"message"`
+	Ts       int64  `json:"ts,omitempty"`
 }
 
 type OutgoingMessage struct {
@@ -85,4 +76,5 @@ type OutgoingMessage struct {
 	Room     string `json:"room"`
 	Username string `json:"username"`
 	Message  string `json:"message"`
+	Ts       int64  `json:"ts,omitempty"`
 }

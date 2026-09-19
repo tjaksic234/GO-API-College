@@ -16,3 +16,7 @@ func FindRoomByName(name string) (models.Room, error) {
 func ListRooms() ([]models.Room, error) {
 	return repository.ListRooms()
 }
+
+func ListActiveRooms() ([]models.Room, error) {
+	return repository.ListActiveRooms()
+}

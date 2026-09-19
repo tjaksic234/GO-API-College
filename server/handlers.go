@@ -39,7 +39,6 @@ func (s *Server) HandleConnections(c *gin.Context) {
 	for {
 		var in IncomingMessage
 		if err := ws.ReadJSON(&in); err != nil {
-			// client likely disconnected; remove if present
 			if client.RoomName != "" {
 				s.Hub.RemoveClient(client)
 			}
@@ -49,7 +48,6 @@ func (s *Server) HandleConnections(c *gin.Context) {
 
 		switch in.Type {
 		case "join":
-			// ensure user & room exist in DB
 			user, err := services.EnsureUser(in.Username)
 			if err != nil {
 				log.Printf("ensure user: %v", err)
@@ -60,7 +58,6 @@ func (s *Server) HandleConnections(c *gin.Context) {
 				log.Printf("ensure room: %v", err)
 				continue
 			}
-			// bind client
 			client.Username = user.Username
 			client.UserID = user.ID
 			client.RoomName = room.Name
@@ -68,7 +65,6 @@ func (s *Server) HandleConnections(c *gin.Context) {
 
 			s.Hub.AddClient(client)
 
-			// notify room (optional)
 			s.Hub.broadcast <- OutgoingMessage{
 				Type:     "message",
 				Room:     room.Name,
@@ -78,18 +74,16 @@ func (s *Server) HandleConnections(c *gin.Context) {
 
 		case "message":
 			if client.RoomID == 0 || client.UserID == 0 {
-				// not joined yet
 				continue
 			}
-			// persist message
 			_ = services.SaveMessage(client.RoomID, client.UserID, in.Message)
 
-			// broadcast to room
 			s.Hub.broadcast <- OutgoingMessage{
 				Type:     "message",
 				Room:     client.RoomName,
 				Username: client.Username,
 				Message:  in.Message,
+				Ts:       in.Ts,
 			}
 
 		case "leave":
@@ -102,16 +96,20 @@ func (s *Server) HandleConnections(c *gin.Context) {
 					Message:  client.Username + " left",
 				}
 			}
+			// Send a proper WS close frame before the deferred ws.Close() tears
+			// down the TCP connection. Without it, clients see an abnormal
+			// closure (code 1006) instead of a normal one (1000) on every
+			// intentional leave, which under K6 load looked like a WS error
+			// on ~every iteration despite nothing actually being wrong.
+			_ = ws.WriteControl(websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+				time.Now().Add(time.Second))
 			return
 		default:
-			// ignore unknown
 		}
 	}
 }
 
-// ---------- REST endpoints ----------
-
-// GET /rooms          -> all rooms from DB (persistent)
 func (s *Server) GetAllRooms(c *gin.Context) {
 	rooms, err := services.ListRooms()
 	if err != nil {
@@ -122,7 +120,12 @@ func (s *Server) GetAllRooms(c *gin.Context) {
 }
 
 func (s *Server) GetActiveRooms(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"rooms": s.Hub.ActiveRooms()})
+	rooms, err := services.ListActiveRooms()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list active rooms"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"rooms": rooms})
 }
 
 func (s *Server) GetRoomMessages(c *gin.Context) {
@@ -161,7 +164,6 @@ func (s *Server) GetRoomMessages(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"messages": out})
 }
 
-// GET /users          -> list users from DB
 func (s *Server) GetAllUsers(c *gin.Context) {
 	users, err := services.ListUsers()
 	if err != nil {

@@ -14,35 +14,33 @@ import (
 )
 
 func main() {
-	// DB
 	db.InitDB()
 	if err := db.DB.AutoMigrate(&models.User{}, &models.Room{}, &models.Message{}); err != nil {
 		log.Fatalf("auto-migrate failed: %v", err)
 	}
 
-	// Hub + server
 	hub := server.NewHub()
 	go hub.Run()
 	s := server.NewServer(hub)
 
-	// Gin
-	r := gin.Default()
+	// ReleaseMode + Recovery-only (no gin.Default()'s per-request access
+	// logger): keeps stdout I/O overhead comparable to the Spring Boot side
+	// under K6 load, so latency/throughput differences reflect the
+	// runtime/framework, not incidental logging verbosity.
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(gin.Recovery())
 	r.Use(cors.Default())
 
-	// Health
 	r.GET("/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "ok"}) })
 
-	// WebSocket
 	r.GET("/ws", s.HandleConnections)
 
 	// REST
-	r.GET("/rooms", s.GetAllRooms) // persistent rooms (from DB)
+	r.GET("/rooms", s.GetAllRooms)
 	r.GET("/rooms/active", s.GetActiveRooms)
 	r.GET("/messages/:room", s.GetRoomMessages)
 	r.GET("/users", s.GetAllUsers)
-
-	// (optional) serve your static client if you drop index.html in project root:
-	// r.StaticFile("/", "./index.html")
 
 	port := 8080
 	fmt.Printf("Server running on http://localhost:%d\n", port)

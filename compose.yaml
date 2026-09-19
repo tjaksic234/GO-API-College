@@ -3,15 +3,49 @@ services:
   db:
     container_name: mysql
     hostname: mysql
-    image: mysql
+    image: mysql:8.4
     restart: unless-stopped
     environment:
       - MYSQL_DATABASE=TJAKSIC_TEST_DB
       - MYSQL_ROOT_PASSWORD=secret
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     ports:
       - '3306:3306'
     volumes:
       - db:/var/lib/mysql
+    networks:
+      - chatnet
+
+  go-api:
+    container_name: go-api
+    hostname: go-api
+    depends_on:
+      db:
+        condition: service_healthy
+    build:
+      dockerfile: Dockerfile
+    environment:
+      - DB_CONNECTION_DEV=root:secret@tcp(db:3306)/TJAKSIC_TEST_DB?parseTime=true
+    ports:
+      - '8080:8080'
+    networks:
+      - chatnet
+    # Matches java-api's limits in spring-boot-api/compose.yaml — without an
+    # identical cap, CPU/memory measurements under K6 load aren't comparable.
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+
 volumes:
   db:
     driver: local
+
+networks:
+  chatnet:
+    driver: bridge

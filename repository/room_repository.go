@@ -29,3 +29,19 @@ func ListRooms() ([]models.Room, error) {
 	err := db.DB.Order("name asc").Find(&rooms).Error
 	return rooms, err
 }
+
+// ListActiveRooms returns rooms that have at least one message, matching the
+// Spring Boot side's DB-backed definition of "active". The previous
+// implementation returned the in-memory hub's currently-connected rooms,
+// which is a different, WS-session-scoped notion of "active" — a functional
+// mismatch between the two apps that would have made /rooms/active results
+// incomparable in K6 tests.
+func ListActiveRooms() ([]models.Room, error) {
+	var rooms []models.Room
+	err := db.DB.
+		Joins("JOIN messages ON messages.room_id = rooms.id").
+		Group("rooms.id").
+		Order("rooms.name asc").
+		Find(&rooms).Error
+	return rooms, err
+}
